@@ -1,0 +1,898 @@
+//------------------------------------------------------------------------------
+//------------------------------------------------------------------------------
+// Base url for all api requests
+const base_url  = "https://transloc-api-1-2.p.mashape.com/";
+
+// API key
+const key = "w4whFebofemshuRZ4b5iXUu5R6Xgp1nRqpLjsnLJTvji1xGhzd";
+
+// API request headers
+local headers = {"X-Mashape-Key" : key, "Accept" : "application/json"};
+
+// Route and stop ID
+const all_routes = "4006684+4007026+4007022+4005486+4007030+4007024";
+local routes_table     = {"C1":"4006684",  "C1W":"4007026",  "C4":"4007022",
+                          "CCX":"4005486", "CCXW":"4007030", "CSW":"4007024"};
+local routes_inv_table = {"4006684":"C1  ", "4007026":"C1W ", "4007022":"C4  ",
+                          "4005486":"CCX ", "4007030":"CCXW", "4007024":"CSW "};
+local stops = {"Duke Chapel":"4146366"};
+
+// Arrival estimate url for specific route & stop (route_stop_)
+local arr_est_url = base_url + "arrival-estimates.json?" + "agencies=176" 
+                  + "&routes=" + all_routes 
+                  + "&stops=" + stops["Duke Chapel"];             
+
+// Regex for the arrival time in (YYYY)-(MM)-(DD)T(hh):(mm):(ss)(zzz) format
+//                          e.g. 2015-09-19T13:21:51-04:00
+local time_regexp = regexp(@"(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(-\d{2})");             
+
+//------------------------------------------------------------------------------
+//------------------------------------------------------------------------------
+// Code for lighting up LEDs on NeoPixel Strip
+const vehicles_url = "https://transloc-api-1-2.p.mashape.com/vehicles.json?agencies=176&callback=call&routes=4006684%2C4007022%2C4005486%2C4007024%2C4007026%2C4007030"; //All 6 routes without geo_area limitation
+//const vehicles_url = "https://transloc-api-1-2.p.mashape.com/vehicles.json?agencies=176&callback=call&routes=4007022";
+
+//C1 Stops
+local C1_stops_table = {
+"4146366":{	"lat": 36.00096,
+			"lng": -78.93826, 
+			"direction": "east",
+			"number": 0, 
+			"next": "4098178"},
+"4098178":{	"lat": 35.999,
+			"lng": -78.93336,
+			"direction": "east",
+			"number": 18,
+			"next": "4177630"},							
+"4177630":{	"lat": 36.00002,
+			"lng": -78.93038,
+			"direction": "east",
+			"number": 27,
+			"next": "4186476"},
+"4186476":{	"lat": 35.99982,
+			"lng": -78.9285,
+			"direction": "east",
+			"number": 34,
+			"next": "4098174"},				
+"4098174":{	"lat": 36.00016,
+			"lng": -78.92673,
+			"direction": "east",
+			"number": 40,
+			"next": "4151494"},	
+"4151494":{	"lat": 35.99997,
+			"lng": -78.92355,
+			"direction": "east",
+			"number": 50,
+			"next": "4177626"},	
+"4177626":{	"lat": 36.00086,
+			"lng": -78.9188,
+			"direction": "east",
+			"number": 68,
+			"next": "4177624"},	
+"4177624":{	"lat": 36.00284,
+			"lng": -78.91743,
+			"direction": "east",
+			"number": 76,
+			"next": "4117202"},
+"4117202":{	"lat": 36.00598,
+			"lng": -78.91472,
+			"direction": "west",
+			"number": 90,
+			"next": "4158202"},		
+"4158202":{	"lat": 36.00502,
+			"lng": -78.91607,
+			"direction": "west",
+			"number": 86,
+			"next": "4158234"},	
+"4158234":{	"lat": 36.00269,
+			"lng": -78.91767,
+			"direction": "west",
+			"number": 74,
+			"next": "4158210"},	
+"4158210":{	"lat": 36.00103,
+			"lng": -78.91894,
+			"direction": "west",
+			"number": 69,
+			"next": "4157330"},	
+"4157330":{	"lat": 36.00001,
+			"lng": -78.92321,
+			"direction": "west",
+			"number":52,
+			"next": "4098170"},			
+"4098170":{	"lat": 36.00026,
+			"lng": -78.92675,
+			"direction": "west",
+			"number": 40,
+			"next": "4177628"},	
+"4177628":{	"lat": 36.00007,
+			"lng": -78.92998,
+			"direction": "west",
+			"number": 25,
+			"next": "4098182"},	
+"4098182":{	"lat": 35.99907,
+			"lng": -78.93367,
+			"direction": "west",
+			"number": 17,
+			"next": "4146366"}, 
+      "0":{	"lat": 0,
+			"lng": 0,
+			"direction": "",
+			"number": 0,
+			"next": 0}
+};
+
+//CSW Stops
+local CSW_stops_table = {
+"4146366":{	"lat": 36.00096,
+			"lng": -78.93826, 
+			"direction": "east",
+			"number": 0, 
+			"next": "4098178"},
+"4098178":{	"lat": 35.999,
+			"lng": -78.93336,
+			"direction": "east",
+			"number": 18,
+			"next": "4177630"},							
+"4177630":{	"lat": 36.00002,
+			"lng": -78.93038,
+			"direction": "east",
+			"number": 27,
+			"next": "4186476"},
+"4186476":{	"lat": 35.99982,
+			"lng": -78.9285,
+			"direction": "east",
+			"number": 34,
+			"next": "4098174"},				
+"4098174":{	"lat": 36.00016,
+			"lng": -78.92673,
+			"direction": "east",
+			"number": 40,
+			"next": "4151494"},	
+"4151494":{	"lat": 35.99997,
+			"lng": -78.92355,
+			"direction": "east",
+			"number": 50,
+			"next": "4177626"},	
+"4177626":{	"lat": 36.00086,
+			"lng": -78.9188,
+			"direction": "east",
+			"number": 68,
+			"next": "4177624"},	
+"4177624":{	"lat": 36.00284,
+			"lng": -78.91743,
+			"direction": "east",
+			"number": 76,
+			"intermediate": 77,
+			"next": "4117632"},
+"4177632":{	"lat": 36.00153,
+			"lng": -78.91489,
+			"direction": "east",
+			"number": 100,
+			"intermediate": 94,
+			"next": "4177636"},	
+"4177636":{	"lat": 36.00521,
+			"lng": -78.91475,
+			"direction": "west",
+			"number": 121,
+			"next": "4158230"},	
+"4158230":{	"lat": 36.00171,
+			"lng": -78.91481,
+			"direction": "west",
+			"number": 100,
+			"intermediate": 94,
+			"next": "4158234"}
+"4158234":{	"lat": 36.00269,
+			"lng": -78.91767,
+			"direction": "west",
+			"number": 74,
+			"intermediate": 77,
+			"next": "4158210"},	
+"4158210":{	"lat": 36.00103,
+			"lng": -78.91894,
+			"direction": "west",
+			"number": 69,
+			"next": "4157330"},	
+"4157330":{	"lat": 36.00001,
+			"lng": -78.92321,
+			"direction": "west",
+			"number":52,
+			"next": "4098170"},			
+"4098170":{	"lat": 36.00026,
+			"lng": -78.92675,
+			"direction": "west",
+			"number": 40,
+			"next": "4177628"},	
+"4177628":{	"lat": 36.00007,
+			"lng": -78.92998,
+			"direction": "west",
+			"number": 25,
+			"next": "4098182"},	
+"4098182":{	"lat": 35.99907,
+			"lng": -78.93367,
+			"direction": "west",
+			"number": 17,
+			"next": "4146366"}, 
+      "0":{	"lat": 0,
+			"lng": 0,
+			"direction": "",
+			"number": 0,
+			"next": 0}
+};
+
+local C4_stops_table = {
+"4146366":{	"lat": 36.00096,
+			"lng": -78.93826, 
+			"direction": "east",
+			"number": 0, 
+			"next": "4098178"},
+"4098178":{	"lat": 35.999,
+			"lng": -78.93336,
+			"direction": "east",
+			"number": 18,
+			"intermediate": 28,
+			"next": "4098358"},							
+"4098358":{	"lat": 36.00023,
+			"lng": -78.93011,
+			"direction": "east",
+			"number": 122,
+			"intermediate": 121,
+			"next": "4098274"},	
+"4098274":{	"lat": 36.00414,
+			"lng": -78.92983,
+			"direction": "east",
+			"number": 137,
+			"next": "4098266"}, 
+"4098266":{	"lat": 36.00529,
+			"lng": -78.93104,
+			"direction": "east",
+			"number": 145,
+			"next": "4098346"},
+"4098346":{	"lat": 36.00538,
+			"lng": -78.93323,
+			"direction": "east",
+			"number": 151,
+			"next": "4098230"},	
+"4098230":{	"lat": 36.00684,
+			"lng": -78.93288,
+			"direction": "east",
+			"number": 158,
+			"next": "4098294"}, 
+"4098294":{	"lat": 36.00453,
+			"lng": -78.92656,
+			"direction": "east",
+			"number": 185,
+			"next": "4098282"},	
+"4098282":{	"lat": 36.00185,
+			"lng": -78.92715,
+			"direction": "east",
+			"number": 196,
+			"next": "4098414"}, 
+"4098414":{	"lat": 36.00045,
+			"lng": -78.92753,
+			"direction": "east",
+			"number": 200,
+			"intermediate": 202,
+			"next": "4177628"},	
+"4177628":{	"lat": 36.00007,
+			"lng": -78.92998,
+			"direction": "west",
+			"number": 25,
+			"intermediate": 37,
+			"next": "4098182"},	
+"4098182":{	"lat": 35.99907,
+			"lng": -78.93367,
+			"direction": "west",
+			"number": 17,
+			"next": "4146366"}, 
+      "0":{	"lat": 0,
+			"lng": 0,
+			"direction": "",
+			"number": 0,
+			"next": 0}
+};
+
+//C4 dummy stops 
+local dummy_stops = {
+"4098178":{	"lat": 36.000049,
+			"lng": -78.930240, 
+			"number": 28},
+"4098358":{	"lat": 36.000049,
+			"lng": -78.930240, 
+			"number": 28},		
+			
+"4098414":{	"lat": 35.999987,
+			"lng": -78.927576,
+			"number": 202},	
+"4177628":{	"lat": 35.999987,
+			"lng": -78.927576,
+			"number": 202},
+//CCX
+"4098174":{	"lat": 35.999987,
+			"lng": -78.927576,
+			"number": 202},
+			
+"4151494":{	"lat": 35.999988, 				
+			"lng": -78.923409,
+			"number": 51},
+"4173498":{	"lat": 35.999988,
+			"lng": -78.923409,
+			"number": 51},	
+			
+"4153094":{	"lat": 36.003453, 
+			"lng": -78.914805, 			
+			"number": 258},	
+"4117202":{	"lat": 36.003453, 
+			"lng": -78.914805, 			
+			"number": 258},		
+			
+"4098170":{	"lat": 35.999987,
+			"lng": -78.927576,
+			"number": 37},	
+"4098286":{	"lat": 35.999987,
+			"lng": -78.927576,
+			"number": 37},		
+			
+"4098362":{	"lat": 36.000049,
+			"lng": -78.930240, 
+			"number": 121},
+"4098190":{	"lat": 36.000049,
+			"lng": -78.930240, 
+			"number": 121}, 
+//CSW
+
+"4177624":{	"lat": 36.00284,
+			"lng": -78.91743,
+			"number": 77},
+"4177632":{	"lat": 36.00284,
+			"lng": -78.91743,
+			"number": 77},	
+"4158230":{	"lat": 36.00284,
+			"lng": -78.91743,
+			"number": 94}
+"4158234":{	"lat": 36.00284,
+			"lng": -78.91743,
+			"number": 94},	
+};
+
+local CCX_weekday_stops_table = {
+"4146366":{	"lat": 36.00096,
+			"lng": -78.93826, 
+			"direction": "east",
+			"number": 0, 
+			"next": "4098178"},
+"4098178":{	"lat": 35.999,
+			"lng": -78.93336,
+			"direction": "east",
+			"number": 18,
+			"intermediate": 28,
+			"next": "4098358"},							
+"4098358":{	"lat": 36.00023,
+			"lng": -78.93011,
+			"direction": "east",
+			"number": 122,
+			"intermediate": 121,
+			"next": "4098274"},	
+"4098274":{	"lat": 36.00414,
+			"lng": -78.92983,
+			"direction": "east",
+			"number": 137,
+			"next": "4098230"}, 
+"4098230":{	"lat": 36.00684,
+			"lng": -78.93288,
+			"direction": "east",
+			"number": 158,
+			"next": "4185868"}, 
+"4185868":{	"lat": 36.00565,
+			"lng": -78.92755, 
+			"direction": "east",
+			"number": 176,
+			"next": "4098294"},
+"4098294":{	"lat": 36.00453,
+			"lng": -78.92656,
+			"direction": "east",
+			"number": 185,
+			"next": "4098282"},	
+"4098282":{	"lat": 36.00185,
+			"lng": -78.92715,
+			"direction": "east",
+			"number": 196,
+			"next": "4098414"}, 
+"4098414":{	"lat": 36.00045,
+			"lng": -78.92753,
+			"direction": "east",
+			"number": 200,
+			"intermediate": 202,
+			"next": "4098174"},	
+"4098174":{	"lat": 36.00016,
+			"lng": -78.92673,
+			"direction": "east",
+			"number": 40,
+			"intermediate": 37,
+			"next": "4151494"},	
+"4151494":{	"lat": 35.99997,
+			"lng": -78.92355,
+			"direction": "east",
+			"number": 50,
+			"intermediate": 51,
+			"next": "4173498"},	
+"4173498":{	"lat": 36.00096,
+			"lng": -78.92264,
+			"direction": "east",
+			"number": 225,
+			"intermediate": 222,
+			"next": "4153094"},
+"4153094":{	"lat": 36.00268,
+			"lng": -78.92135, 
+			"direction": "east",
+			"number": 233,
+			"intermediate": 258,
+			"next": "4117202"},
+"4117202":{	"lat": 36.00598,
+			"lng": -78.91472,
+			"direction": "west",
+			"number": 90,
+			"intermediate": 84,
+			"next": "4158202"},		
+"4158202":{	"lat": 36.00502,
+			"lng": -78.91607,
+			"direction": "west",
+			"number": 86,
+			"next": "4158234"},	
+"4158234":{	"lat": 36.00269,
+			"lng": -78.91767,
+			"direction": "west",
+			"number": 74,
+			"next": "4158210"},	
+"4158210":{	"lat": 36.00103,
+			"lng": -78.91894,
+			"direction": "west",
+			"number": 69,
+			"next": "4157330"},	
+"4157330":{	"lat": 36.00001,
+			"lng": -78.92321,
+			"direction": "west",
+			"number":52,
+			"next": "4098170"},			
+"4098170":{	"lat": 36.00026,
+			"lng": -78.92675,
+			"direction": "west",
+			"number": 40,
+			"intermediate": 37,
+			"next": "4098286"},	
+"4098286":{	"lat": 36.00207,
+			"lng": -78.92684,	
+			"direction": "west",
+			"number": 195,
+			"intermediate": 202,
+			"next": "4098298"},			
+"4098298":{	"lat": 36.00462,
+			"lng": -78.92635,
+			"direction": "west",
+			"number": 185,
+			"next": "4098226"},
+"4098226":{	"lat": 36.00687,
+			"lng": -78.93303, 
+			"direction": "west",
+			"number": 158,
+			"next": "4098278"},
+"4098278":{	"lat": 36.00426,
+			"lng": -78.93012,
+			"direction": "west",
+			"number": 137,
+			"next": "4098362"},
+"4098362":{	"lat": 36.00066,
+			"lng": -78.93034,
+			"direction": "west",
+			"number": 124,
+			"intermediate": 121,
+			"next": "4098190"},
+"4098190":{	"lat": 35.99784,
+			"lng": -78.9333,
+			"direction": "west",
+			"number": 17,
+			"intermediate": 28,
+			"next": "4146366"},
+      "0":{	"lat": 0,
+			"lng": 0,
+			"direction": "",
+			"number": 0,
+			"next": ""}
+};
+
+local CCX_weekend_stops_table = {
+"4146366":{	"lat": 36.00096,
+			"lng": -78.93826, 
+			"direction": "east",
+			"number": 0, 
+			"next": "4098178"},
+"4098178":{	"lat": 35.999,
+			"lng": -78.93336,
+			"direction": "east",
+			"number": 4,
+			"next": "4098358"},							
+"4098358":{	"lat": 36.00023,
+			"lng": -78.93011,
+			"direction": "east",
+			"number": 29,
+			"next": "4098274"},	
+"4098274":{	"lat": 36.00414,
+			"lng": -78.92983,
+			"direction": "east",
+			"number": 31,
+			"next": "4098294"}, 
+"4098294":{	"lat": 36.00453,
+			"lng": -78.92656,
+			"direction": "east",
+			"number": 42,
+			"next": "4098282"},	
+"4098282":{	"lat": 36.00185,
+			"lng": -78.92715,
+			"direction": "east",
+			"number": 44,
+			"next": "4098414"}, 
+"4098414":{	"lat": 36.00045,
+			"lng": -78.92753,
+			"direction": "east",
+			"number": 45,
+			"next": "4098174"},	
+"4098174":{	"lat": 36.00016,
+			"lng": -78.92673,
+			"direction": "east",
+			"number": 10,
+			"next": "4151494"},	
+"4151494":{	"lat": 35.99997,
+			"lng": -78.92355,
+			"direction": "east",
+			"number": 13,
+			"next": "4173498"},	
+"4173498":{	"lat": 36.00096,
+			"lng": -78.92264,
+			"direction": "east",
+			"number": 0,
+			"next": "4153094"},
+"4153094":{	"lat": 36.00268,
+			"lng": -78.92135, 
+			"direction": "east",
+			"number": 0,
+			"next": "4117202"},
+"4117202":{	"lat": 36.00598,
+			"lng": -78.91472,
+			"direction": "west",
+			"number": 23,
+			"next": "4158234"},		
+"4158234":{	"lat": 36.00269,
+			"lng": -78.91767,
+			"direction": "west",
+			"number": 18,
+			"next": "4158210"},	
+"4158210":{	"lat": 36.00103,
+			"lng": -78.91894,
+			"direction": "west",
+			"number": 16,
+			"next": "4157330"},	
+"4157330":{	"lat": 36.00001,
+			"lng": -78.92321,
+			"direction": "west",
+			"number":13,
+			"next": "4098170"},			
+"4098170":{	"lat": 36.00026,
+			"lng": -78.92675,
+			"direction": "west",
+			"number": 10,
+			"next": "4098286"},	
+"4098286":{	"lat": 36.00207,
+			"lng": -78.92684,	
+			"direction": "west",
+			"number": 0,
+			"next": "4098298"},			
+"4098298":{	"lat": 36.00462,
+			"lng": -78.92635,
+			"direction": "west",
+			"number": 0,
+			"next": "4098278"},
+"4098278":{	"lat": 36.00426,
+			"lng": -78.93012,
+			"direction": "west",
+			"number": 0,
+			"next": "4098362"},
+"4098362":{	"lat": 36.00066,
+			"lng": -78.93034,
+			"direction": "west",
+			"number": 0,
+			"next": "4098190"},
+"4098190":{	"lat": 35.99784,
+			"lng": -78.9333,
+			"direction": "west",
+			"number": 0,
+			"next": "4146366"},
+      "0":{	"lat": 0,
+			"lng": 0,
+			"direction": "",
+			"number": 0,
+			"next": ""}
+};
+
+local stops_table = {"4006684": C1_stops_table,
+                     "4007022": C4_stops_table,
+                     "4007024": CSW_stops_table,
+                     "4005486": CCX_weekday_stops_table,
+                     "4007030": CCX_weekend_stops_table
+                    };
+
+local current_stop = 0;
+local next_stop = 0;
+local temp = 0;
+
+local vehicle_return_array = array(8);      //This is where the impt information for each bus is stored
+                                            //Each element is a table that contains next_stop, current_stop, lat, long
+local flags = array(8);
+
+//------------------------------------------------------------------------------
+//------------------------------------------------------------------------------
+// Response handler
+function handleResponse1(responseTable) {
+    // Init the data table (packet) that will be sent to the device
+    local data = {};
+    data["successful_request"]  <- 0;   // 0 - not successful,  1 - successful
+    data["available"]           <- 0;   // 0 - not available,   1 - available
+    data["time_zone"]           <- 0;   // 4 - UTC-04 (DST),    5 - UTC-05, ...
+    data["arr_times"]           <- 0;   // arr_times_table will be stored here
+        
+    // Check if the request is successful (statuscode == 200)
+    if (responseTable.statuscode == 200) {
+        // Mark request is successful
+        data["successful_request"] = 1;
+        
+        // Parse the response (json) and store as a table of tables/arrays of ...
+        local response = http.jsondecode(responseTable.body);  
+        
+        // Get the data array (an array of data tables)
+        local data_array = response["data"];
+        
+        // Init a table that stores the minutes till next arrival
+        local arr_times_table = {};
+            
+        if (data_array.len() > 0) {
+            // Store in the data table that data is available
+            data["available"] = 1;
+            
+            // Data table for the stop requested (>1 tables if >1 stops requested)
+            local data_table = data_array[0];
+            // An arrival array (of arrival tables, each containing route id + time)
+            local arr_array = data_table["arrivals"];
+                           
+            for (local i = 0; i < arr_array.len(); i++) {
+                // Get the route_id of the arrival, and look up the route name
+                local route_id = arr_array[i]["route_id"];
+                local route = routes_inv_table[route_id];
+                
+                // Skip if the next arrival for this route is already obtained
+                if (arr_times_table.rawin(route))
+                    continue;
+                    
+                // Use regex to convert "2015-09-19T13:21:51-04:00" to "13:21:51"
+                // Match is a table that contains the starting and ending indices
+                local string = arr_array[i]["arrival_at"];
+                local match = time_regexp.capture(string);
+    
+                // Slice the string and store the substring "hh:mm:ss" in the array
+                local timezone = string.slice(match[7].begin, match[7].end).tointeger();
+                
+                local arr_year = string.slice(match[1].begin, match[1].end).tointeger();
+                local arr_month= string.slice(match[2].begin, match[2].end).tointeger();
+                local arr_day  = string.slice(match[3].begin, match[3].end).tointeger();
+                
+                local arr_hour = string.slice(match[4].begin, match[4].end).tointeger();
+                local arr_min  = string.slice(match[5].begin, match[5].end).tointeger();
+                local arr_sec  = string.slice(match[6].begin, match[6].end).tointeger();
+                local arr_time_sec = arr_hour * 3600 + arr_min * 60 + arr_sec;
+
+                // Get the date and calculate the current seconds of the day
+                local cur_date = date(time() + timezone * 3600);
+                local cur_time_sec = cur_date.hour * 3600 + cur_date.min * 60 + cur_date.sec;
+                
+                // Special cases: arrival time is the next day while current time is still today
+                // cur_date.month+2 because cur_date.month is 0~11 not 1~12
+                if ((arr_year  == (cur_date.year+1) ) || (arr_month == (cur_date.month+2)) ||
+                    (arr_day   == (cur_date.day+1)  )  ) {
+                    arr_time_sec = arr_time_sec + 86400;
+                }
+                
+                // Calculate the arrival time in minutes
+                local arr_mins = (arr_time_sec - cur_time_sec) / 60;
+                
+                // Store the result in the arrival times table
+                arr_times_table[route] <- arr_mins;
+                //server.log("route: " + route + " mins: " + arr_mins);
+                // Store the time zone information in data
+                data["time_zone"] = timezone;
+            }
+            data["arr_times"] = arr_times_table;
+        }
+        else {
+            // Store in the data table that data is not available
+            data["available"] = 0;
+        }
+    }
+    else {
+        // Mark request is not successful
+        data["successful_request"] = 0;
+        
+        // Log the status code if there is an error (statuscode != 200)
+        server.log("API request error. Status code: " + responseTable.statuscode);
+    }
+    
+    // Send to the device an "arrival times" message containing all the data
+    device.send("arrival times", data);
+}
+
+//------------------------------------------------------------------------------
+//------------------------------------------------------------------------------
+
+//Response handler for vehicles
+function handleResponse2(responseTable) {
+    local data = {};
+    
+    if (responseTable.statuscode == 200) {
+
+        data["successful_request"]  <- 0;   
+        data["successful_request"] = 1;
+        data["available"]           <- 0;   
+        data["bus_info"]            <- 0;   //should have current_stop, next stop, original_distance, current_distance
+        local response = http.jsondecode(responseTable.body);  
+        local data_table = response["data"];
+        local vehicle_array = data_table["176"];        //each element is a table of info for each vehicle
+
+        for(local i=0; i<vehicle_array.len(); i++){
+            
+            local temp_route_id = vehicle_array[i]["route_id"];     //route of current vehicle
+            local temp_stop_table = stops_table[temp_route_id];     //corresponding table of stops for current route
+            local vehicle_info = {};                                //intialize vehicle info: has nextstop, currentstop, lat,lng
+            
+            if(vehicle_return_array[i]!=null){                 
+                vehicle_info = vehicle_return_array[i];         //retrieve previous info
+            }
+            else if(vehicle_return_array[i]==null){             //edge case: when program first starts, initialize variables
+                vehicle_info["next_stop"] <- "0";
+                vehicle_info["current_stop"] <- "0";
+            }
+            
+            if(vehicle_array[i]["arrival_estimates"].len()==0){             //in case API request doesn't work, doesn't have any arrival estimates
+                continue;
+            }else{
+                temp = vehicle_array[i]["arrival_estimates"][0]["stop_id"];     //keep pinging and checking next_stop, store in temp
+                vehicle_info["lat"] <- vehicle_array[i]["location"]["lat"];         //set new vehicle lat/lng
+                vehicle_info["lng"] <- vehicle_array[i]["location"]["lng"];
+            }
+
+            if(temp!=vehicle_info["next_stop"]){                    //bus has just arrived at stop 
+                //server.log("********** NEW STOP **********");       //--> set new current and next stop
+                vehicle_info["current_stop"] = vehicle_info["next_stop"];
+                vehicle_info["next_stop"] = temp;
+                flags[i]=false;
+            }
+            vehicle_return_array[i] = vehicle_info;    
+            
+            //**MAIN FUNCTION that calculates distance and which LED to light up --> DEBUG WITHIN THIS FUNCTION 
+            calculateData(vehicle_info, i, temp_stop_table, vehicle_array, temp_route_id);
+
+            data["available"] = 1;
+        }
+        data["bus_info"]            <- vehicle_return_array;
+        //server.log("");
+
+    }
+    else {
+        data["successful_request"] = 0;
+        server.log("API request error. Status code: " + responseTable2.statuscode);
+    }
+    data["available"] = 1;
+    device.send("bus information", data);
+}
+
+//**MAIN FUNCTION that calculates distance and which LED to light up --> DEBUG WITHIN THIS FUNCTION 
+function calculateData(vehicle_info, i, temp_stop_table, vehicle_array, temp_route_id){
+
+            local current_stop = vehicle_return_array[i]["current_stop"];
+            local next_stop = vehicle_return_array[i]["next_stop"];
+            local stoptostopdist = calculateDistance(temp_stop_table[next_stop]["lat"], temp_stop_table[next_stop]["lng"], temp_stop_table[current_stop]["lat"], temp_stop_table[current_stop]["lng"]);
+            local bustostopdist = calculateDistance(temp_stop_table[next_stop]["lat"], temp_stop_table[next_stop]["lng"], vehicle_info["lat"], vehicle_info["lng"]);
+            local scalefactor = math.abs(temp_stop_table[current_stop]["number"]-temp_stop_table[next_stop]["number"]);
+
+            //If splitting from main LED strip
+            if(temp_stop_table[current_stop].rawin("intermediate")&&temp_stop_table[next_stop].rawin("intermediate")){
+                if(flags[i]==false){
+                    scalefactor = math.abs(temp_stop_table[current_stop]["number"]-temp_stop_table[current_stop]["intermediate"]);
+                    stoptostopdist = calculateDistance(dummy_stops[current_stop]["lat"], dummy_stops[current_stop]["lng"], temp_stop_table[current_stop]["lat"], temp_stop_table[current_stop]["lng"]);
+                    bustostopdist = calculateDistance(dummy_stops[current_stop]["lat"], dummy_stops[current_stop]["lng"], vehicle_info["lat"], vehicle_info["lng"]);
+                                
+                }else if(flags[i]==true){
+                    scalefactor = math.abs(temp_stop_table[next_stop]["number"]-temp_stop_table[next_stop]["intermediate"]);
+                    stoptostopdist = calculateDistance(dummy_stops[next_stop]["lat"], dummy_stops[next_stop]["lng"], temp_stop_table[next_stop]["lat"], temp_stop_table[next_stop]["lng"]);
+                    bustostopdist = calculateDistance(temp_stop_table[next_stop]["lat"], temp_stop_table[next_stop]["lng"], vehicle_info["lat"], vehicle_info["lng"]);
+                }
+            }
+
+            local LEDoffset = round(bustostopdist/stoptostopdist*scalefactor, 0);
+            //server.log("LED offset: "+LEDoffset+"   bustostopdist: "+bustostopdist);
+            local actualLED = 0;
+            if(temp_stop_table[current_stop]["direction"]=="east"){
+                actualLED = temp_stop_table[next_stop]["number"] - LEDoffset;
+            }else{
+                actualLED = temp_stop_table[next_stop]["number"] + LEDoffset;
+            }
+            
+            //If bus route splits from main LED strip
+            if(temp_stop_table[current_stop].rawin("intermediate") && temp_stop_table[next_stop].rawin("intermediate")){
+                //server.log("Testing Intermediate: A "+ actualLED + " " + temp_stop_table[current_stop]["intermediate"]);
+                if(bustostopdist<0.01){
+                    flags[i]=true;
+                }
+                
+                if(temp_route_id=="4007022"){
+                    if(temp_stop_table[current_stop]["direction"]=="east" && flags[i]==false){
+                        actualLED = temp_stop_table[current_stop]["intermediate"] - LEDoffset;
+                    }else if(temp_stop_table[current_stop]["direction"]=="east" && flags[i]==true){
+                        actualLED = temp_stop_table[next_stop]["number"] + LEDoffset;
+                    }
+                }else{
+                    if(temp_stop_table[current_stop]["direction"]=="east" && flags[i]==false){
+                        actualLED = temp_stop_table[current_stop]["intermediate"] - LEDoffset;
+                        
+                    }else if(temp_stop_table[current_stop]["direction"]=="east" && flags[i]==true){
+                        actualLED = temp_stop_table[next_stop]["number"] - LEDoffset;          
+                        
+                    }else if(temp_stop_table[current_stop]["direction"]=="west" && flags[i]==false){
+                        actualLED = temp_stop_table[current_stop]["intermediate"] + LEDoffset;
+                    
+                    }else if(temp_stop_table[current_stop]["direction"]=="west" && flags[i]==true){
+                        actualLED = temp_stop_table[next_stop]["number"] + LEDoffset;
+                    }                                 
+                }
+            }
+            
+            //Save all values back into the array
+            vehicle_info["original_distance"] <- stoptostopdist;
+            vehicle_info["current_distance"] <- bustostopdist;
+            vehicle_info["actual_LED"] <- actualLED;
+            vehicle_info["route_id"] <- vehicle_array[i]["route_id"];
+            vehicle_return_array[i] = vehicle_info; 
+            //server.log("Route Number: " + vehicle_info["route_id"] + " LED number: "+ vehicle_info["actual_LED"])
+}
+
+//Returns distance in meters given two points with latitude and longtitude
+function calculateDistance(lat1, lon1, lat2, lon2){
+    local dlon = lon2 - lon1; 
+    local dlat = -lat2 + lat1;
+    local a = math.pow(math.sin(dlat/2*PI/180),2) + math.cos(lat1*PI/180) * math.cos(lat2*PI/180) * math.pow(math.sin(dlon/2*PI/180),2); 
+    local c = 2 * math.atan2( math.pow(a, 0.5)*PI/180, math.pow((1-a),0.5)*PI/180 ); 
+    local R = 6371;
+    local d = R * c //(where R is the radius of the Earth)
+    return d;
+}
+
+//Round off to whole number
+function round(value, decimalPoints) {
+   local f = math.pow(10, decimalPoints) * 1.0;
+   local newValue = value * f;
+   newValue = math.floor(newValue + 0.5);
+   newValue = (newValue * 1.0) / f;
+   return newValue;
+}
+
+//------------------------------------------------------------------------------
+//------------------------------------------------------------------------------
+function main(){
+    // Call main again after n seconds
+    imp.wakeup(2, main);
+    // Create a GET request
+    local request1 = http.get(arr_est_url, headers); 
+    // Send the request asynchronously (does not block the imp CPU)
+    request1.sendasync(handleResponse1);
+    
+    local request2 = http.get(vehicles_url, headers); 
+    request2.sendasync(handleResponse2);
+}
+
+// Agent starts running here
+main();

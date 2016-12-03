@@ -1,0 +1,553 @@
+//------------------------------------------------------------------------------
+//  IO Setup: PinC = ATmega328P Wake UP, PinD = Enable/Disable LMZ12010
+//------------------------------------------------------------------------------
+AVR_WAKE_UP <- hardware.pinC;
+AVR_WAKE_UP.configure(DIGITAL_OUT, 0);
+LMZ12010_ENABLE <- hardware.pinD;
+LMZ12010_ENABLE.configure(DIGITAL_OUT, 0);
+//------------------------------------------------------------------------------
+//  I2C Setup: Pin8 = SCL, Pin9 = SDA
+//------------------------------------------------------------------------------
+i2c <- hardware.i2c89;
+i2c.configure(CLOCK_SPEED_100_KHZ);
+//------------------------------------------------------------------------------
+//  SPI Setup: Pin5 = SCLK (C), Pin7 = MOSI (D)
+//------------------------------------------------------------------------------
+spi <- hardware.spi257;
+spi.configure(SIMPLEX_TX | MSB_FIRST | CLOCK_IDLE_LOW, 4000);
+//------------------------------------------------------------------------------
+//  UART Setup: Pin6 = TX, PinE = RX
+//------------------------------------------------------------------------------
+// Configuration: Baudrate = 19200, Data bits = 8, Parity = NONE, Stop bits = 1
+uartAVR <- hardware.uart6E;
+uartAVR.configure(19200, 8, PARITY_NONE, 1, NO_CTSRTS);
+
+//------------------------------------------------------------------------------
+//  INA226 Current/Power Sensor (I2C)
+//------------------------------------------------------------------------------
+// Imp I2C address values are integers
+const INA226_SOLAR_ADDR = 0X40;
+const INA226_BATT_ADDR  = 0X41;
+const INA226_LOAD_ADDR  = 0x42;
+
+// Imp I2C command values are strings with the \x character to indicate a hex value
+const INA226_REG_CONFIG         = "\x00";
+const INA226_REG_SHUNTVOLTAGE   = "\x01";
+const INA226_REG_BUSVOLTAGE     = "\x02";
+const INA226_REG_POWER          = "\x03";
+const INA226_REG_CURRENT        = "\x04";
+const INA226_REG_CALIBRATION    = "\x05";
+
+// Average 64 sampels = 0.7936s
+const INA226_CONFIG_AVG064_VBUS4_VSH8_CONT_MSB   = "\x09";  //Ob00000111
+const INA226_CONFIG_AVG064_VBUS4_VSH8_CONT_LSB   = "\xBF";  //Ob10111111
+// Average 128 samples = 1.5872s
+const INA226_CONFIG_AVG128_VBUS4_VSH8_CONT_MSB   = "\x09";  //Ob00001001
+const INA226_CONFIG_AVG128_VBUS4_VSH8_CONT_LSB   = "\xBF";  //Ob10111111
+// Shutdown mode
+const INA226_CONFIG_AVG128_VBUS4_VSH8_SHDW_MSB   = "\x09";  //Ob00001001
+const INA226_CONFIG_AVG128_VBUS4_VSH8_SHDW_LSB   = "\xBF";  //Ob10111000
+
+// Rshunt = 0.001 ohm, Iexpected = 6.5A -> Current_LSB = 200uA/bit, CAL = 25600 = 0x6400
+// Current_LSB = Iexpected / 2^15; CAL = 0.00512 / (Current_LSB * Rshunt)
+// For PCB Rev. 1, change the value to 25600 * (0.82173) = ...
+const INA226_CAL_MSB = "\x64";
+const INA226_CAL_LSB = "\x00";
+
+// LSBs
+const VOLTAGE_LSB = 0.00125;    // 1.25mV/bit
+const CURRENT_LSB = 0.00020;    // 200uA/bit
+const POWER_LSB   = 0.005;      // 5mW/bit (CURRENT_LSB * 25)
+
+// Variables
+local INA226_ADDR = [INA226_SOLAR_ADDR << 1, INA226_BATT_ADDR << 1, INA226_LOAD_ADDR << 1];
+local INA226_DATA = array(9,0);
+
+function getPower(){
+    imp.wakeup(2,getPower);
+    
+    foreach (count, INA226 in INA226_ADDR) {
+        local voltage_raw = i2c.read(INA226, INA226_REG_BUSVOLTAGE, 2);
+        local voltage = ((voltage_raw[0]<<8)+voltage_raw[1]) * VOLTAGE_LSB;
+        
+        local current_raw_array = i2c.read(INA226, INA226_REG_CURRENT, 2);
+        local current_raw_16b = (current_raw_array[0]<<8)+current_raw_array[1];
+        local current;
+        local sign;
+        if (current_raw_16b & 0x8000) {
+            current = -((~current_raw_16b & 0x7FFF) + 1) * CURRENT_LSB;
+            sign = 1; // indicate negative current value
+        }
+        else {
+            current = current_raw_16b * CURRENT_LSB;
+            sign = 0; // indicate positive current value
+        }
+        
+        local power_raw = i2c.read(INA226, INA226_REG_POWER, 2);
+        local power = ((power_raw[0]<<8)+power_raw[1]) * POWER_LSB;
+        if (sign) power = -power;
+        
+        INA226_DATA[count*3+0] = voltage;
+        INA226_DATA[count*3+1] = current;
+        INA226_DATA[count*3+2] = power;
+    }
+    
+    server.log("Vsolar:\t" + format("%6.3f",INA226_DATA[0]) + " V\t" +
+               "Vbatt:\t"  + format("%6.3f",INA226_DATA[3]) + " V\t" +
+               "Vload:\t"  + format("%6.3f",INA226_DATA[6]) + " V\t" );
+    server.log("Isolar:\t" + format("%6.3f",INA226_DATA[1]) + " A\t" +
+               "Ibatt:\t"  + format("%6.3f",INA226_DATA[4]) + " A\t" +
+               "Iload:\t"  + format("%6.3f",INA226_DATA[7]) + " A\t");
+    server.log("Psolar:\t" + format("%6.3f",INA226_DATA[2]) + " W\t" +
+               "Pbatt:\t"  + format("%6.3f",INA226_DATA[5]) + " W\t" +
+               "Pload:\t"  + format("%6.3f",INA226_DATA[8]) + " W\t");
+}
+
+function startINA226() {
+    foreach (INA226 in INA226_ADDR) {
+        // Enable the INA226 and set conversion time and averaging
+        i2c.write(INA226, INA226_REG_CONFIG +
+            INA226_CONFIG_AVG128_VBUS4_VSH8_CONT_MSB +
+            INA226_CONFIG_AVG128_VBUS4_VSH8_CONT_LSB); 
+    
+        // set the calibration register
+        i2c.write(INA226, INA226_REG_CALIBRATION + 
+            INA226_CAL_MSB + INA226_CAL_LSB);
+    }
+    
+    getPower();
+}
+    
+//------------------------------------------------------------------------------
+//  TSL2561 Light Sensor (I2C)
+//------------------------------------------------------------------------------
+// Imp I2C address values are integers
+const TSL2561_ADDR_FLOAT = 0x39;
+
+// Imp I2C command values are strings with the \x character to indicate a hex value
+const TSL2561_REGISTER_CONTROL  = "\x80";   // Access control register
+const TSL2561_CONTROL_POWERON   = "\x03";   // Power on setting
+const TSL2561_CONTROL_POWEROFF  = "\x00";   // Power off setting
+
+const TSL2561_REGISTER_TIMING   = "\x81";   // Access timing register
+const TSL2561_GAIN_01x_INT_013  = "\x00";   // Gain =  1x, integration time = 13.7ms
+const TSL2561_GAIN_01x_INT_101  = "\x01";   // Gain =  1x, integration time = 101ms
+const TSL2561_GAIN_01x_INT_402  = "\x02";   // Gain =  1x, integration time = 402ms
+const TSL2561_GAIN_16x_INT_013  = "\x10";   // Gain = 16x, integration time = 13.7ms
+const TSL2561_GAIN_16x_INT_101  = "\x11";   // Gain = 16x, integration time = 101ms
+const TSL2561_GAIN_16X_INT_402  = "\x12";   // Gain = 16x, integration time = 402ms
+
+const TSL2561_REGISTER_ADC0_LSB = "\xAC";   // Broadband sensor ADC LSB register address
+const TSL2561_REGISTER_ADC1_LSB = "\xAE";   // IR sensor ADC LSB register address
+
+// Lux calculation constants
+const LUX_SCALE      = 14;      // scale by 2^14        
+const RATIO_SCALE    =  9;      // scale ratio by 2^9
+const CH_SCALE       = 10;      // Scale channel values by 2^10
+const CH_SCALE_TINT0 = 0x7517;  // 322/11 * 2^CH_SCALE
+const CH_SCALE_TINT1 = 0x0FE7;  // 322/81 * 2^CH_SCALE
+
+// FN package lux calculation values
+const K1T = 0x0040;  // 0.125 * 2^RATIO_SCALE
+const B1T = 0x01f2;  // 0.0304 * 2^LUX_SCALE
+const M1T = 0x01be;  // 0.0272 * 2^LUX_SCALE
+const K2T = 0x0080;  // 0.250 * 2^RATIO_SCALE
+const B2T = 0x0214;  // 0.0325 * 2^LUX_SCALE
+const M2T = 0x02d1;  // 0.0440 * 2^LUX_SCALE
+const K3T = 0x00c0;  // 0.375 * 2^RATIO_SCALE
+const B3T = 0x023f;  // 0.0351 * 2^LUX_SCALE
+const M3T = 0x037b;  // 0.0544 * 2^LUX_SCALE
+const K4T = 0x0100;  // 0.50 * 2^RATIO_SCALE
+const B4T = 0x0270;  // 0.0381 * 2^LUX_SCALE
+const M4T = 0x03fe;  // 0.0624 * 2^LUX_SCALE
+const K5T = 0x0138;  // 0.61 * 2^RATIO_SCALE
+const B5T = 0x016f;  // 0.0224 * 2^LUX_SCALE
+const M5T = 0x01fc;  // 0.0310 * 2^LUX_SCALE
+const K6T = 0x019a;  // 0.80 * 2^RATIO_SCALE
+const B6T = 0x00d2;  // 0.0128 * 2^LUX_SCALE
+const M6T = 0x00fb;  // 0.0153 * 2^LUX_SCALE
+const K7T = 0x029a;  // 1.3 * 2^RATIO_SCALE
+const B7T = 0x0018;  // 0.00146 * 2^LUX_SCALE
+const M7T = 0x0012;  // 0.00112 * 2^LUX_SCALE
+const K8T = 0x029a;  // 1.3 * 2^RATIO_SCALE
+const B8T = 0x0000;  // 0.000 * 2^LUX_SCALE
+const M8T = 0x0000;  // 0.000 * 2^LUX_SCALE
+
+// Three options for the integration time
+enum INTEGRATION_TIME {
+  T13MS  = 0x00  // 13.7ms
+  T101MS = 0x01  // 101ms
+  T402MS = 0x02  // 402ms
+}
+
+const MAX_ILLUMINANCE = 310;
+const MINIMUM_DISPLAY_BRIGHTNESS = 100;
+
+// Variables
+local TSL2561 = TSL2561_ADDR_FLOAT << 1;  
+local intTime = INTEGRATION_TIME.T101MS;
+local lightSensorReadError;
+local lightSensorSaturated;
+local illuminanceMesurements = [];
+local sumIlluminance = 0;
+local averageIlluminance;
+local displayBrightness = 130;
+
+// Read the LOW and HIGH bytes of the ADC value
+function readSensorADC(regAddr) {
+    // On a successful read, data[0] = LOW byte, data[1] = HIGH byte
+    local data = i2c.read(TSL2561, regAddr, 2);
+    
+    // Sensor might not be on the bus, need to check if there is an I2C read error
+    // If there is an error, return null. If not, rearrange the order of data and
+    // then return the value. 
+    local lumo;
+    if (data == null) lumo = null;          
+    else lumo = (data[1] << 8) + data[0];
+    return lumo;
+}
+
+// Calculate the illuminance value based on the two ADC readings
+function calculateLux(ch0, ch1) {
+	local chScale;
+	
+    switch (intTime){
+        case INTEGRATION_TIME.T13MS:
+            chScale = CH_SCALE_TINT0;
+            break;
+        case INTEGRATION_TIME.T101MS:
+            chScale = CH_SCALE_TINT1;
+            break;
+        case INTEGRATION_TIME.T402MS:
+            chScale = (1 << CH_SCALE);
+            break;
+        default:
+            server.log("Error: INTEGRATION_TIME not correctly defined.");
+    }
+    
+    // Assume we're using a gain of 1x
+	local channel0 = (ch0 * chScale) >> (CH_SCALE-4);   // -4: scale for gain
+	local channel1 = (ch1 * chScale) >> (CH_SCALE-4);   // -4: scale for gain
+	
+	// Find the ratio of the channel values (Channel1/Channel0)
+	local ratio1 = 0;
+	if (channel0 != 0) ratio1 = (channel1 << (RATIO_SCALE + 1)) / channel0;
+	
+	// Round the ratio value
+	local ratio = (ratio1 + 1) >> 1;
+	
+	local b = 0;
+	local m = 0;
+	if ((ratio >= 0) && (ratio <= K1T)) {b=B1T; m=M1T;}
+	else if (ratio <= K2T) {b=B2T; m=M2T;}
+	else if (ratio <= K3T) {b=B3T; m=M3T;}
+	else if (ratio <= K4T) {b=B4T; m=M4T;}	
+	else if (ratio <= K5T) {b=B5T; m=M5T;}
+	else if (ratio <= K6T) {b=B6T; m=M6T;}
+	else if (ratio <= K7T) {b=B7T; m=M7T;}	
+	else if (ratio >  K8T) {b=B8T; m=M8T;}
+	
+	local temp = ((channel0 * b) - (channel1 * m));
+	
+	// Do not allow a negative lux value
+	if (temp < 0) temp = 0;
+	
+	// Round lsb (2^(LUX_SCALE-1))
+	temp += (1 << (LUX_SCALE - 1));
+	
+	// Strip off fractional portion
+	local lux = temp >> LUX_SCALE;
+	
+	return lux;
+}
+
+// Function to be called periodically
+function getIlluminance() {
+    // Repeatedly called with a 2s interval
+    imp.wakeup(2, getIlluminance);
+    
+    // Get both the Broadband and IR ADC readings
+    local lumo0 = readSensorADC(TSL2561_REGISTER_ADC0_LSB);
+    local lumo1 = readSensorADC(TSL2561_REGISTER_ADC1_LSB);
+    
+    // First check if there was an I2C read error (e.g. sensor not connected).
+    local illuminance;
+    if (lumo0 == null || lumo1 == null) {
+        lightSensorReadError = true;
+    }
+    else {
+        lightSensorReadError = false;
+        
+        // Then check if the sensor was saturated. 
+        if (lumo0 == 37177 || lumo1 == 37177) {
+            lightSensorSaturated = true;
+        }
+        else {
+            lightSensorSaturated = false;
+            
+            // Now we can calculate the illuminace value
+            illuminance = calculateLux(lumo0, lumo1);
+            
+            // Moving average filter
+            if (illuminanceMesurements.len()>=10) {
+                sumIlluminance -= illuminanceMesurements[0];
+                illuminanceMesurements.remove(0);
+            }
+            sumIlluminance += illuminance;
+            illuminanceMesurements.append(illuminance);
+            averageIlluminance = sumIlluminance/illuminanceMesurements.len();
+            
+            // Calculate displayBrightness (0-255)
+            displayBrightness = 150; //(1.0*averageIlluminance/MAX_ILLUMINANCE)*(255-MINIMUM_DISPLAY_BRIGHTNESS)+MINIMUM_DISPLAY_BRIGHTNESS).tointeger();
+            if (displayBrightness>255) displayBrightness=255;
+        }
+    }
+    
+    // Log sensor data
+    if (lightSensorReadError)
+        server.log("Illuminance:\t\t" + "I2C Read Error!");
+    else if (lightSensorSaturated) 
+        server.log("Illuminance:\t\t" + "Sensor Saturated!");
+    else
+        server.log("Illuminance:\t\t" + averageIlluminance + " lux");
+    
+    // Log display brightness
+    //server.log("Display brightness:\t" + displayBrightness);
+}
+
+// Enable TSL2561, set gain and integration time, and then call getIlluminance
+function startTSL2561() {
+    // Enable the TSL2561
+    i2c.write(TSL2561, TSL2561_REGISTER_CONTROL + TSL2561_CONTROL_POWERON);
+    // Set gain to 1x and integration time to 101ms
+    i2c.write(TSL2561, TSL2561_REGISTER_TIMING + TSL2561_GAIN_01x_INT_101);
+
+    getIlluminance();
+}
+
+//------------------------------------------------------------------------------
+//  APA102 LED Strip (SPI)
+//------------------------------------------------------------------------------
+// Initilize an array of size 144+2 = 146, with all entries set to 0 (0x000000) 
+// Each entry is a 3 byte RGB color value (0xRRGGBB)
+// In order for the last two LEDs to be displayed correctly, an extra two
+// non-existent LEDs are added to the actual number of LEDs. Not sure why.
+local LED_Length = 267;
+local ledBuffer = array(LED_Length, 0);
+
+local startFrame = blob(4); 
+startFrame.writen(0x00000000,'i');
+
+local endFrame = blob(4); 
+endFrame.writen(0xFFFFFFFF,'i');
+local temp_array = array(8);
+local conflict_array = array(8);
+// message handler
+function writeToLedMap(data) {
+    // Check if the API request was successful
+    if (data["successful_request"]) {
+    
+        // Check if the data table contains any data or not
+        if (data["available"]) {
+            local vehicle_array = data["bus_info"];
+            
+            clearAll();
+            for(local i = 0; i < vehicle_array.len() ; i++) {
+                local temp = vehicle_array[i];
+
+                if(temp!=null){
+                    local table = {};
+                    table["route_id"] <- temp["route_id"].slice(3);
+                    table["actual_LED"] <- temp["actual_LED"];
+                    temp_array[i] = table;
+                    //server.log(temp["route_id"].slice(3));
+                    //server.log(temp["actual_LED"]);
+                    testPattern(temp["route_id"].slice(3), temp["actual_LED"]);
+                }
+            }
+            writeToStrip();
+            checkconflict(temp_array);
+        }
+        else {
+            server.log("code reaches here (data not available)");
+        }
+    
+    }
+    else {
+        server.log("code reaches here (API request error)");
+    }
+
+}
+
+function checkconflict(temp_array){
+
+        for(local i=0;i<temp_array.len();i++){
+            
+            for(local j=i;j<temp_array.len();j++){
+               // if(temp_array[i].rawin("route_id")&&temp_array[j].rawin("route_id")){
+                if(temp_array[i]!=null&&temp_array[j]!=null){
+                    //server.log(temp_array[i]["actual_LED"]);
+                    if(temp_array[i]["route_id"]!=temp_array[j]["route_id"] && temp_array[i]["actual_LED"]==temp_array[j]["actual_LED"]){
+                        //server.log("***************************");
+                        //server.log(temp_array[i]["route_id"] + " " + temp_array[i]["actual_LED"]);
+                        //server.log(temp_array[j]["route_id"] + " " + temp_array[j]["actual_LED"])
+                        
+                        testPattern(temp_array[i]["route_id"], temp_array[i]["actual_LED"]);
+                        writeToStrip();
+                        imp.sleep(0.4);
+                        testPattern(temp_array[j]["route_id"], temp_array[j]["actual_LED"]);
+                        writeToStrip();
+                        imp.sleep(0.4);
+                        testPattern(temp_array[i]["route_id"], temp_array[i]["actual_LED"]);
+                        writeToStrip();
+                        imp.sleep(0.4);
+                        testPattern(temp_array[j]["route_id"], temp_array[j]["actual_LED"]);
+                        writeToStrip();
+                        imp.sleep(0.4);
+                    }                    
+                }
+            }
+        }
+}
+
+function writeToStrip(){
+    spi.write(startFrame);
+    for (local i = 0; i < LED_Length; i++) {
+        spi.write(format("%c", 0xFF));
+        spi.write(format("%c", ledBuffer[i]));
+        spi.write(format("%c", ledBuffer[i]>>8));
+        spi.write(format("%c", ledBuffer[i]>>16));
+    }
+    spi.write(endFrame);
+}
+
+function testPattern(route, LEDnumber){
+    if(LEDnumber>=0){
+        if (route == "6684" || route == "7026") {
+            ledBuffer[LEDnumber]=0xFF0000;  // RED (C1+C1weekend)
+        }
+        else if (route == "7022") {
+            ledBuffer[LEDnumber]=0x00FF00;  // GREEN (C4)
+        }
+        else if(route == "7024"){
+            ledBuffer[LEDnumber]=0x0000FF;  // BLUE (CSW)
+        }
+        else if (route == "5486" || route == "7030"){
+            ledBuffer[LEDnumber]=0x0F0F00;   // YELLOW (CCX+CCXweekend)    
+        }
+    }
+}
+
+function clearAll(){
+    for (local i = 0; i < LED_Length; i++) {
+        ledBuffer[i]=0;
+    }
+}
+
+//------------------------------------------------------------------------------
+//  Arrival Times Message Handler (UART)
+//------------------------------------------------------------------------------
+// The order in which the arrival data will be sent to the AVR
+local dataOrder = ["C1  ", "C1W ", "C4  ", "CCX ", "CCXW","CSW "];
+
+// "arrival times" message handler
+function writeToAVR(data) {
+    // Check if the API request was successful
+    if (data["successful_request"]) {
+        // Check if the data table contains any data or not
+        if (data["available"]) {
+            local arr_times_table = data["arr_times"];
+            // Initialize the data packet to be sent to the AVR (header = 1)
+            local dataToAVR = (1).tochar() + (displayBrightness).tochar(); //(255).tochar(); 
+
+            // Write data in the predefined order (dataOrder)
+            for(local i = 0; i < dataOrder.len() ; i++) {
+                if (arr_times_table.rawin(dataOrder[i])) {
+                    local key = dataOrder[i];
+                    local value = arr_times_table[key];
+                    if (value!=0) {
+                        // Write the string to be displayed (len = 10, \0 excluded)
+                        dataToAVR = dataToAVR + key + "   " + format("%2u", value) + "m";
+                    }
+                    else {
+                        // If the arrival time is 0, display <1 instead of 0
+                        dataToAVR = dataToAVR + key + "   " + "<1" + "m";
+                    }
+                }
+            }
+            // Send all the data to AVR in a single string terminated by '\0'
+            uartAVR.write(dataToAVR + "\0");
+        }
+        else {
+            // Write a "2" to indicate data not available
+            uartAVR.write((2).tochar() + (displayBrightness).tochar() + "\0");
+        }
+    }
+    else {
+        // Write a "3" to indicate API request error
+        uartAVR.write((3).tochar() + (displayBrightness).tochar() + "\0"); 
+    }
+}
+
+//------------------------------------------------------------------------------
+//  Power Saving
+//------------------------------------------------------------------------------
+function disableAVR() {
+    AVR_WAKE_UP.write(0);
+    uartAVR.write((4).tochar() + "\0");
+}
+
+function enableAVR() {
+    AVR_WAKE_UP.write(0);
+    AVR_WAKE_UP.write(1);
+    AVR_WAKE_UP.write(0);
+}
+
+function turnOffAVRandLMZ12010() {
+    disableAVR();
+    LMZ12010_ENABLE.write(0);
+}
+
+function turnOnAVRandLMZ12010() {
+    enableAVR();
+    LMZ12010_ENABLE.write(1);
+}
+
+function checkCurrentTime() {
+    imp.wakeup(2, checkCurrentTime);
+    
+    local cur_date_UTC = date(time());
+    local day_UTC = cur_date_UTC["day"];
+    local hour_UTC = cur_date_UTC["hour"];
+    local min_UTC = cur_date_UTC["min"];
+    local sec_UTC = cur_date_UTC["sec"];
+    
+    local cur_date_UTC_5 = date(time() + (-5) * 3600);
+    local wday_UTC_5 = cur_date_UTC_5["wday"];
+    local day_UTC_5 = cur_date_UTC_5["day"];
+    local hour_UTC_5 = cur_date_UTC_5["hour"];
+    local min_UTC_5 = cur_date_UTC_5["min"];
+    local sec_UTC_5 = cur_date_UTC_5["sec"];
+    
+    if (hour_UTC_5 == 10 && min_UTC_5 == 22 && sec_UTC<10) {
+        clearAll();
+        writeToStrip();
+        turnOffAVRandLMZ12010();
+        server.sleepuntil(hour_UTC, min_UTC, sec_UTC+20, wday_UTC_5);
+    }
+}
+
+//------------------------------------------------------------------------------
+//  "Main"
+//------------------------------------------------------------------------------
+// Register a handler for "arrival times" messages from the agent
+agent.on("arrival times", writeToAVR);
+agent.on("bus information", writeToLedMap);
+// AVR & LMZ12010
+turnOnAVRandLMZ12010();
+// Initilize the light sensor
+startTSL2561();
+// Initilize the current sensor
+startINA226();
+// Checks the Time every 2s, go to sleep if possible
+//checkCurrentTime();
